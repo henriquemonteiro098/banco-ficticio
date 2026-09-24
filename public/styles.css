@@ -62,3 +62,138 @@
     opacity: 1;
   }
 }
+
+/* =============================================================================
+   1k Visual Assets & Premium Components (Phase 2 - M1)
+   ============================================================================= */
+
+/* Cartão Black — Textura 1k, Acabamento Glassmorphic / Fibra de Carbono / Ouro Sutil */
+.card-black-premium {
+  background-color: #0b0e17;
+  background-image:
+    linear-gradient(135deg, rgba(15, 23, 42, 0.72) 0%, rgba(2, 6, 23, 0.86) 100%),
+    url('/assets/cartao_black_texture.png');
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+  border: 1px solid rgba(212, 175, 55, 0.32);
+  box-shadow:
+    0 20px 35px -10px rgba(0, 0, 0, 0.85),
+    0 0 25px rgba(212, 175, 55, 0.08),
+    inset 0 1px 1px rgba(255, 255, 255, 0.12);
+  position: relative;
+  transition: transform 0.35s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.35s ease, border-color 0.35s ease;
+}
+
+.card-black-premium:hover {
+  transform: translateY(-2px);
+  border-color: rgba(212, 175, 55, 0.55);
+  box-shadow:
+    0 25px 45px -10px rgba(0, 0, 0, 0.95),
+    0 0 35px rgba(212, 175, 55, 0.18),
+    inset 0 1px 2px rgba(255, 255, 255, 0.2);
+}
+
+/* Banner Gerencial — Cofre Digital & Tesouraria (1k Asset Panorâmico) */
+.banner-tesouraria-bg {
+  background-color: #020617;
+  background-image:
+    linear-gradient(90deg, rgba(2, 6, 23, 0.96) 0%, rgba(15, 23, 42, 0.85) 50%, rgba(30, 27, 75, 0.45) 100%),
+    url('/assets/banner_cofre_tesouraria.png');
+  background-size: cover;
+  background-position: right center;
+  background-repeat: no-repeat;
+  border: 1px solid rgba(51, 65, 85, 0.6);
+  box-shadow: 0 12px 30px -5px rgba(0, 0, 0, 0.6);
+  position: relative;
+}
+
+@media (max-width: 640px) {
+  .banner-tesouraria-bg {
+    background-position: 85% center;
+    background-image:
+      linear-gradient(180deg, rgba(2, 6, 23, 0.94) 0%, rgba(2, 6, 23, 0.88) 100%),
+      url('/assets/banner_cofre_tesouraria.png');
+  }
+}
+
+/* Utilitários de Avatar & Badge de Alta Resolução */
+.avatar-1k-container {
+  position: relative;
+  overflow: hidden;
+  border: 1px solid rgba(99, 102, 241, 0.35);
+  box-shadow: 0 4px 15px -3px rgba(0, 0, 0, 0.5);
+  transition: transform 0.2s ease, border-color 0.2s ease;
+}
+
+.avatar-1k-container:hover {
+  transform: scale(1.05);
+  border-color: rgba(129, 140, 248, 0.6);
+}
+
+.badge-operacao-img {
+  width: 36px;
+  height: 36px;
+  object-fit: contain;
+  filter: drop-shadow(0 2px 6px rgba(0, 0, 0, 0.4));
+}
+
+/* =============================================================================
+   Command Palette & Interactive Chat IA (Phase 2 - M3)
+   ============================================================================= */
+
+.command-palette-card {
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.85), 0 0 30px rgba(99, 102, 241, 0.15);
+  animation: paletteScaleIn 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes paletteScaleIn {
+  from {
+    opacity: 0;
+    transform: scale(0.97) translateY(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+.command-suggestion-item {
+  transition: all 0.15s ease;
+}
+
+.command-suggestion-item.active {
+  background-color: rgba(99, 102, 241, 0.22) !important;
+  border-left: 3px solid #6366f1;
+}
+
+.chat-bubble-user {
+  background: linear-gradient(135deg, #4f46e5 0%, #4338ca 100%);
+  color: #ffffff;
+  border-radius: 1rem 1rem 0.25rem 1rem;
+  box-shadow: 0 4px 12px rgba(79, 70, 229, 0.25);
+  animation: fadeIn 0.2s ease;
+}
+
+.chat-bubble-bot {
+  animation: fadeIn 0.25s ease;
+}
+
+.pulse-indicator {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  animation: pulseDot 1.4s infinite ease-in-out both;
+}
+
+@keyframes pulseDot {
+  0%, 80%, 100% {
+    transform: scale(0);
+    opacity: 0.5;
+  }
+  40% {
+    transform: scale(1);
+  }
+}
+

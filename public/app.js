@@ -12,6 +12,17 @@ let state = {
   extratoCompleto: [],
   filtroExtratoAtual: 'todos',
   chartTipos: null,
+  commandPaletteAberta: false,
+  selectedSuggestionIndex: -1,
+  filteredComandos: [],
+  comandosDisponiveis: [
+    { comando: '/saldo', titulo: 'Saldo da Conta Ativa', descricao: 'Saldo atual, limite e disponível da conta ativa', icone: 'fa-wallet' },
+    { comando: '/extrato', titulo: 'Últimos Lançamentos', descricao: 'Últimos lançamentos com badges de valor (+/-)', icone: 'fa-receipt' },
+    { comando: '/pix', titulo: 'Transferência PIX', descricao: 'Fluxo rápido de transferência PIX', icone: 'fa-bolt' },
+    { comando: '/contas', titulo: 'Contas Cadastradas', descricao: 'Visão rápida das contas cadastradas', icone: 'fa-address-card' },
+    { comando: '/agencias', titulo: 'Rede de Agências', descricao: 'Consulta de agências bancárias e códigos', icone: 'fa-building-columns' },
+    { comando: '/ajuda', titulo: 'Guia de Comandos', descricao: 'Lista de comandos e perguntas que o assistente responde', icone: 'fa-circle-question' },
+  ],
 };
 
 // Formatação Monetária (R$)
@@ -64,6 +75,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   await realizarLoginAutomatico('admin', 'admin');
   await carregarDadosBanco();
   await carregarTodasContas();
+  inicializarCommandPalette();
 });
 
 // Checar conexão com banco de dados
@@ -320,7 +332,12 @@ function renderizarTabelaTodasContas(contas) {
     return `
       <tr class="hover:bg-slate-800/40 transition">
         <td class="py-2.5 px-3 text-white font-bold">${ct.numero}-${ct.digito}</td>
-        <td class="py-2.5 px-3 text-slate-200 font-sans">${ct.cliente_nome}</td>
+        <td class="py-2.5 px-3 text-slate-200 font-sans">
+          <div class="flex items-center gap-2.5">
+            <img src="/assets/avatars/avatar-${((ct.cliente_id - 1) % 8) + 1}.png" alt="" class="w-6 h-6 rounded-full object-cover border border-slate-700/60 shadow-sm" onerror="this.style.display='none'">
+            <span>${ct.cliente_nome}</span>
+          </div>
+        </td>
         <td class="py-2.5 px-3 text-slate-400 text-[11px]">${ct.agencia_codigo}</td>
         <td class="py-2.5 px-3 uppercase text-[10px] text-slate-400">${ct.tipo}</td>
         <td class="py-2.5 px-3 text-right font-bold ${parseFloat(ct.saldo) >= 0 ? 'text-emerald-400' : 'text-rose-400'}">
@@ -419,7 +436,11 @@ async function carregarClientePorId(clienteId) {
     document.getElementById('clienteDocs').textContent = `CPF: ${cliente.cpf} • ${cliente.cidade || ''}/${cliente.estado || ''}`;
 
     const iniciais = cliente.nome.split(' ').map(n => n[0]).slice(0, 2).join('');
-    document.getElementById('clienteAvatar').textContent = iniciais;
+    const avatarEl = document.getElementById('clienteAvatar');
+    if (avatarEl) {
+      const avatarId = ((cliente.id - 1) % 8) + 1;
+      avatarEl.innerHTML = `<img src="/assets/avatars/avatar-${avatarId}.png" alt="${cliente.nome}" class="w-full h-full object-cover rounded-2xl" onerror="this.parentElement.textContent='${iniciais}'">`;
+    }
 
     // Popula seletor de contas do cliente
     const select = document.getElementById('selectContaCliente');
@@ -501,10 +522,13 @@ function renderizarExtrato() {
       detalheContraparte = isEntrada ? `De: ${t.remetente || 'Outra Conta'}` : `Para: ${t.destinatario || 'Outra Conta'}`;
     }
 
+    const badgeOp = t.tipo === 'pix' ? '/assets/operacoes/op-pix.png' : t.tipo === 'transferencia' ? '/assets/operacoes/op-transferencia.png' : t.tipo === 'deposito' ? '/assets/operacoes/op-deposito.png' : t.tipo === 'saque' ? '/assets/operacoes/op-saque.png' : '/assets/operacoes/op-pagamento.png';
+
     return `
       <div class="py-3 flex items-center justify-between text-xs hover:bg-slate-900/60 px-2 rounded-xl transition">
         <div class="flex items-center gap-3">
-          <div class="w-9 h-9 rounded-xl flex items-center justify-center ${icone}">
+          <img src="${badgeOp}" alt="${t.tipo}" class="w-9 h-9 rounded-xl object-contain p-0.5 border border-slate-700/50 bg-slate-900/60 shadow-sm flex-shrink-0" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex'">
+          <div class="w-9 h-9 rounded-xl items-center justify-center ${icone} hidden flex-shrink-0">
             <i class="fa-solid ${isEntrada ? 'fa-arrow-down' : 'fa-arrow-up'}"></i>
           </div>
           <div>
@@ -707,4 +731,657 @@ async function executarOperacaoBanco(e) {
     feedback.textContent = 'Erro ao processar operação';
     feedback.className = 'text-xs text-rose-400 block';
   }
+}
+
+// =============================================================================
+// Command Palette & Chat IA Bancário (Phase 2 - M3)
+// =============================================================================
+
+function inicializarCommandPalette() {
+  // Listener Global de Teclado no Window
+  window.addEventListener('keydown', (e) => {
+    // Tecla Escape fecha a palette
+    if (e.key === 'Escape') {
+      if (state.commandPaletteAberta) {
+        fecharCommandPalette();
+      }
+      return;
+    }
+
+    // Tecla '/' abre a palette (se não estiver em campos editáveis)
+    if (e.key === '/') {
+      if (state.commandPaletteAberta) return;
+
+      const activeEl = document.activeElement;
+      const tagName = activeEl ? activeEl.tagName.toLowerCase() : '';
+      const isEditable = activeEl && (
+        tagName === 'input' ||
+        tagName === 'textarea' ||
+        tagName === 'select' ||
+        activeEl.isContentEditable
+      );
+
+      if (!isEditable && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        e.preventDefault();
+        abrirCommandPalette();
+        const input = document.getElementById('commandPaletteInput');
+        if (input) {
+          input.value = '/';
+          renderizarSugestoesComandos('/');
+        }
+      }
+    }
+  });
+
+  // Fechar ao clicar no backdrop escuro
+  const modalCmd = document.getElementById('modalCommandPalette');
+  if (modalCmd) {
+    modalCmd.addEventListener('click', (e) => {
+      if (e.target === modalCmd) {
+        fecharCommandPalette();
+      }
+    });
+  }
+
+  // Eventos de Input e Navegação de Teclado na Palette
+  const inputCmd = document.getElementById('commandPaletteInput');
+  if (inputCmd) {
+    inputCmd.addEventListener('input', (e) => {
+      const val = e.target.value;
+      const clearBtn = document.getElementById('btnClearCommandInput');
+      if (clearBtn) {
+        if (val) clearBtn.classList.remove('hidden');
+        else clearBtn.classList.add('hidden');
+      }
+      renderizarSugestoesComandos(val);
+    });
+
+    inputCmd.addEventListener('keydown', (e) => {
+      const dropdown = document.getElementById('commandSuggestionsDropdown');
+      const isDropdownVisible = dropdown && !dropdown.classList.contains('hidden');
+
+      if (e.key === 'ArrowDown') {
+        if (isDropdownVisible && state.filteredComandos.length > 0) {
+          e.preventDefault();
+          state.selectedSuggestionIndex = (state.selectedSuggestionIndex + 1) % state.filteredComandos.length;
+          atualizarDestaqueSugestao();
+        }
+      } else if (e.key === 'ArrowUp') {
+        if (isDropdownVisible && state.filteredComandos.length > 0) {
+          e.preventDefault();
+          state.selectedSuggestionIndex = (state.selectedSuggestionIndex - 1 + state.filteredComandos.length) % state.filteredComandos.length;
+          atualizarDestaqueSugestao();
+        }
+      } else if (e.key === 'Enter') {
+        e.preventDefault();
+        if (isDropdownVisible && state.selectedSuggestionIndex >= 0 && state.filteredComandos[state.selectedSuggestionIndex]) {
+          const cmd = state.filteredComandos[state.selectedSuggestionIndex].comando;
+          executarComandoRapido(cmd);
+        } else {
+          const texto = inputCmd.value.trim();
+          if (texto) {
+            enviarMensagemAssistente(texto);
+          }
+        }
+      }
+    });
+  }
+}
+
+function abrirCommandPalette() {
+  state.commandPaletteAberta = true;
+  const modal = document.getElementById('modalCommandPalette');
+  const input = document.getElementById('commandPaletteInput');
+  const contaAtivaBadge = document.getElementById('commandPaletteContaAtiva');
+
+  if (contaAtivaBadge) {
+    if (state.contaClienteAtiva) {
+      const titular = state.contaClienteAtiva.titular || (state.usuario ? state.usuario.nome : '');
+      contaAtivaBadge.textContent = `Conta: ${state.contaClienteAtiva.numero}-${state.contaClienteAtiva.digito} (${titular || 'Ativa'})`;
+    } else {
+      contaAtivaBadge.textContent = 'Conta: 00010001-5 (Ana Paula)';
+    }
+  }
+
+  if (modal) modal.classList.remove('hidden');
+  if (input) {
+    input.focus();
+    renderizarSugestoesComandos(input.value);
+  }
+}
+
+function fecharCommandPalette() {
+  state.commandPaletteAberta = false;
+  const modal = document.getElementById('modalCommandPalette');
+  if (modal) modal.classList.add('hidden');
+  const dropdown = document.getElementById('commandSuggestionsDropdown');
+  if (dropdown) dropdown.classList.add('hidden');
+}
+
+function limparInputComando() {
+  const input = document.getElementById('commandPaletteInput');
+  const clearBtn = document.getElementById('btnClearCommandInput');
+  if (input) {
+    input.value = '';
+    input.focus();
+  }
+  if (clearBtn) clearBtn.classList.add('hidden');
+  renderizarSugestoesComandos('');
+}
+
+function renderizarSugestoesComandos(texto) {
+  const dropdown = document.getElementById('commandSuggestionsDropdown');
+  const list = document.getElementById('commandSuggestionsList');
+  if (!dropdown || !list) return;
+
+  const t = (texto || '').trim().toLowerCase();
+
+  if (!t || t === '/') {
+    state.filteredComandos = [...state.comandosDisponiveis];
+  } else if (t.startsWith('/')) {
+    state.filteredComandos = state.comandosDisponiveis.filter(cmd =>
+      cmd.comando.toLowerCase().startsWith(t) ||
+      cmd.titulo.toLowerCase().includes(t.replace('/', '')) ||
+      cmd.descricao.toLowerCase().includes(t.replace('/', ''))
+    );
+  } else {
+    // Se o usuário digitou sem '/', ainda pode sugerir comandos correspondentes
+    state.filteredComandos = state.comandosDisponiveis.filter(cmd =>
+      cmd.comando.toLowerCase().includes(t) ||
+      cmd.titulo.toLowerCase().includes(t) ||
+      cmd.descricao.toLowerCase().includes(t)
+    );
+  }
+
+  if (state.filteredComandos.length === 0) {
+    dropdown.classList.add('hidden');
+    state.selectedSuggestionIndex = -1;
+    return;
+  }
+
+  dropdown.classList.remove('hidden');
+  state.selectedSuggestionIndex = 0;
+
+  list.innerHTML = state.filteredComandos.map((cmd, idx) => `
+    <div
+      class="command-suggestion-item flex items-center justify-between p-2 rounded-xl cursor-pointer transition ${idx === 0 ? 'active bg-indigo-600/25 border-l-2 border-indigo-500' : 'hover:bg-slate-800/60'}"
+      data-index="${idx}"
+      data-command="${cmd.comando}"
+      onmouseenter="selecionarSugestaoHover(${idx})"
+      onclick="executarComandoRapido('${cmd.comando}')"
+    >
+      <div class="flex items-center gap-2.5">
+        <span class="w-6 h-6 rounded-lg bg-indigo-500/15 text-indigo-400 flex items-center justify-center text-xs">
+          <i class="fa-solid ${cmd.icone}"></i>
+        </span>
+        <span class="font-mono text-xs font-bold text-indigo-300">${cmd.comando}</span>
+        <span class="text-xs text-slate-300 hidden sm:inline">${cmd.descricao}</span>
+      </div>
+      <kbd class="hidden sm:inline-block px-1.5 py-0.5 text-[10px] font-mono bg-slate-900 text-slate-400 border border-slate-800 rounded">Enter</kbd>
+    </div>
+  `).join('');
+}
+
+function selecionarSugestaoHover(idx) {
+  state.selectedSuggestionIndex = idx;
+  atualizarDestaqueSugestao();
+}
+
+function atualizarDestaqueSugestao() {
+  const items = document.querySelectorAll('.command-suggestion-item');
+  items.forEach((item, idx) => {
+    if (idx === state.selectedSuggestionIndex) {
+      item.classList.add('active', 'bg-indigo-600/25', 'border-l-2', 'border-indigo-500');
+      item.classList.remove('hover:bg-slate-800/60');
+      item.scrollIntoView({ block: 'nearest' });
+    } else {
+      item.classList.remove('active', 'bg-indigo-600/25', 'border-l-2', 'border-indigo-500');
+      item.classList.add('hover:bg-slate-800/60');
+    }
+  });
+}
+
+function executarComandoRapido(cmd) {
+  const input = document.getElementById('commandPaletteInput');
+  if (input) input.value = cmd;
+  enviarMensagemAssistente(cmd);
+}
+
+function executarPerguntaRapida(pergunta) {
+  const input = document.getElementById('commandPaletteInput');
+  if (input) input.value = pergunta;
+  enviarMensagemAssistente(pergunta);
+}
+
+async function enviarMensagemAssistente(mensagem) {
+  if (!mensagem || !mensagem.trim()) return;
+
+  const inputCmd = document.getElementById('commandPaletteInput');
+  const dropdown = document.getElementById('commandSuggestionsDropdown');
+  if (dropdown) dropdown.classList.add('hidden');
+  if (inputCmd) inputCmd.value = '';
+
+  const clearBtn = document.getElementById('btnClearCommandInput');
+  if (clearBtn) clearBtn.classList.add('hidden');
+
+  // Adiciona pergunta do usuário no feed
+  adicionarMensagemFeed('usuario', mensagem);
+
+  // Indicador de carregamento
+  const tempMsgId = 'msg-loading-' + Date.now();
+  adicionarIndicadorCarregandoFeed(tempMsgId);
+
+  const inicio = performance.now();
+  const conta_id = state.contaClienteAtiva ? state.contaClienteAtiva.id : 1;
+  const cliente_id = state.usuario && state.usuario.cliente_id ? state.usuario.cliente_id : 1;
+
+  try {
+    const res = await fetch('/api/assistente/consulta', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ mensagem, conta_id, cliente_id }),
+    });
+
+    const tempoRtt = Math.round(performance.now() - inicio);
+    removerElementoFeed(tempMsgId);
+
+    const data = await res.json();
+    const tempoMs = data.tempo_ms !== undefined ? data.tempo_ms : tempoRtt;
+    const tempoBadge = document.getElementById('commandLatencyBadge');
+    if (tempoBadge) {
+      tempoBadge.textContent = `⚡ ${Number(tempoMs).toFixed(1)}ms`;
+      tempoBadge.classList.remove('hidden');
+    }
+
+    if (!data.sucesso && !data.tipo_resposta) {
+      adicionarMensagemFeed('assistente', data.mensagem || 'Não foi possível processar a consulta no momento.', null, tempoMs);
+      return;
+    }
+
+    adicionarMensagemFeed('assistente', data.texto, data, tempoMs);
+  } catch (err) {
+    removerElementoFeed(tempMsgId);
+    adicionarMensagemFeed('assistente', 'Erro ao conectar ao assistente bancário. Verifique sua conexão com o servidor.');
+  }
+}
+
+function adicionarMensagemFeed(remetente, texto, dataExtra = null, tempoMs = null) {
+  const feed = document.getElementById('commandChatFeed');
+  if (!feed) return;
+
+  const msgDiv = document.createElement('div');
+  msgDiv.className = 'fade-in flex items-start gap-3';
+
+  if (remetente === 'usuario') {
+    msgDiv.innerHTML = `
+      <div class="flex-1 flex justify-end">
+        <div class="chat-bubble-user px-4 py-2.5 max-w-[85%] sm:max-w-[75%] text-xs shadow-md">
+          <p class="font-medium whitespace-pre-wrap">${escapeHtml(texto)}</p>
+        </div>
+      </div>
+      <div class="w-7 h-7 rounded-lg bg-indigo-600 flex items-center justify-center text-white shrink-0 text-xs shadow">
+        <i class="fa-solid fa-user text-[11px]"></i>
+      </div>
+    `;
+  } else {
+    const cardHtml = dataExtra ? renderizarCardAssistente(dataExtra) : '';
+    const badgeLatency = tempoMs !== null
+      ? `<span class="inline-flex items-center gap-1 font-mono text-[10px] text-emerald-400 bg-emerald-500/10 px-1.5 py-0.5 rounded border border-emerald-500/20">⚡ ${Number(tempoMs).toFixed(1)}ms</span>`
+      : '';
+
+    msgDiv.innerHTML = `
+      <div class="w-7 h-7 rounded-lg bg-indigo-600/30 text-indigo-400 border border-indigo-500/30 flex items-center justify-center shrink-0 text-xs">
+        <i class="fa-solid fa-robot text-xs"></i>
+      </div>
+      <div class="chat-bubble-bot flex-1 bg-slate-800/60 border border-slate-700/60 rounded-2xl rounded-tl-none p-3.5 space-y-2 text-slate-200">
+        <div class="flex items-center justify-between text-[11px] text-slate-400 border-b border-slate-700/40 pb-1.5">
+          <span class="font-semibold text-slate-300 flex items-center gap-1.5">
+            <i class="fa-solid fa-building-columns text-[10px] text-indigo-400"></i> Assistente Bancário
+          </span>
+          ${badgeLatency}
+        </div>
+        <p class="text-xs text-slate-200 leading-relaxed whitespace-pre-wrap">${escapeHtml(texto)}</p>
+        ${cardHtml}
+      </div>
+    `;
+  }
+
+  feed.appendChild(msgDiv);
+  feed.scrollTop = feed.scrollHeight;
+}
+
+function adicionarIndicadorCarregandoFeed(id) {
+  const feed = document.getElementById('commandChatFeed');
+  if (!feed) return;
+
+  const loadDiv = document.createElement('div');
+  loadDiv.id = id;
+  loadDiv.className = 'flex items-start gap-3 fade-in';
+  loadDiv.innerHTML = `
+    <div class="w-7 h-7 rounded-lg bg-indigo-600/30 text-indigo-400 border border-indigo-500/30 flex items-center justify-center shrink-0 text-xs">
+      <i class="fa-solid fa-robot text-xs animate-pulse"></i>
+    </div>
+    <div class="bg-slate-800/60 border border-slate-700/60 rounded-2xl rounded-tl-none px-4 py-3 flex items-center gap-2 text-slate-400 text-xs">
+      <span class="pulse-indicator bg-indigo-400"></span>
+      <span class="pulse-indicator bg-indigo-400" style="animation-delay: 0.2s"></span>
+      <span class="pulse-indicator bg-indigo-400" style="animation-delay: 0.4s"></span>
+      <span class="ml-1 text-[11px] text-slate-400 font-mono">Consultando PostgreSQL em tempo real...</span>
+    </div>
+  `;
+  feed.appendChild(loadDiv);
+  feed.scrollTop = feed.scrollHeight;
+}
+
+function removerElementoFeed(id) {
+  const el = document.getElementById(id);
+  if (el) el.remove();
+}
+
+function escapeHtml(str) {
+  if (!str) return '';
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}
+
+function renderizarCardAssistente(data) {
+  if (!data || !data.tipo_resposta) return '';
+
+  const tipo = data.tipo_resposta;
+  const d = data.dados;
+
+  if (tipo === 'saldo' && d) {
+    return `
+      <div class="mt-2.5 p-3.5 bg-slate-900/90 border border-slate-700/80 rounded-xl space-y-3 shadow-lg">
+        <div class="flex items-center justify-between border-b border-slate-800 pb-2">
+          <div class="flex items-center gap-2">
+            <span class="w-6 h-6 rounded bg-emerald-500/20 text-emerald-400 flex items-center justify-center text-xs">
+              <i class="fa-solid fa-wallet"></i>
+            </span>
+            <span class="font-bold text-white text-xs">Conta ${d.conta}</span>
+            <span class="px-1.5 py-0.5 rounded text-[10px] uppercase font-mono bg-indigo-500/20 text-indigo-300">${d.tipo}</span>
+          </div>
+          <span class="text-[11px] text-slate-400">${d.titular || ''}</span>
+        </div>
+        <div class="grid grid-cols-1 sm:grid-cols-3 gap-2">
+          <div class="p-2.5 rounded-lg bg-slate-950/70 border border-slate-800">
+            <span class="text-[10px] text-slate-400 block font-medium">Saldo em Conta</span>
+            <span class="text-sm font-bold text-emerald-400 font-mono">${formatarMoeda(d.saldo)}</span>
+          </div>
+          <div class="p-2.5 rounded-lg bg-slate-950/70 border border-slate-800">
+            <span class="text-[10px] text-slate-400 block font-medium">Cheque Especial</span>
+            <span class="text-sm font-bold text-amber-400 font-mono">${formatarMoeda(d.limite)}</span>
+          </div>
+          <div class="p-2.5 rounded-lg bg-indigo-950/40 border border-indigo-500/30">
+            <span class="text-[10px] text-indigo-300 block font-medium">Total Disponível</span>
+            <span class="text-sm font-bold text-indigo-200 font-mono">${formatarMoeda(d.saldo_disponivel)}</span>
+          </div>
+        </div>
+        <div class="flex items-center justify-end gap-2 pt-1">
+          <button onclick="executarComandoRapido('/extrato')" class="px-2.5 py-1 text-[11px] font-medium rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition">
+            <i class="fa-solid fa-receipt mr-1 text-slate-400"></i> Ver Extrato
+          </button>
+          <button onclick="executarComandoRapido('/pix')" class="px-2.5 py-1 text-[11px] font-medium rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white transition shadow-sm">
+            <i class="fa-solid fa-bolt mr-1"></i> Fazer PIX
+          </button>
+        </div>
+      </div>
+    `;
+  }
+
+  if (tipo === 'extrato' && Array.isArray(d)) {
+    if (d.length === 0) {
+      return `
+        <div class="mt-2 p-3 bg-slate-900 border border-slate-800 rounded-xl text-center text-slate-400 text-xs">
+          Nenhum lançamento recente encontrado nesta conta.
+        </div>
+      `;
+    }
+    const itens = d.map(item => {
+      const isEntrada = item.direcao === 'entrada';
+      const badgeClass = isEntrada
+        ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30'
+        : 'bg-rose-500/15 text-rose-400 border border-rose-500/30';
+      const sinal = isEntrada ? '+' : '-';
+
+      return `
+        <div class="flex items-center justify-between p-2 rounded-lg bg-slate-950/60 border border-slate-800/80 hover:border-slate-700 transition">
+          <div class="flex items-center gap-2.5">
+            <span class="w-6 h-6 rounded-md ${badgeClass} flex items-center justify-center text-[10px] font-bold">
+              ${sinal}
+            </span>
+            <div>
+              <p class="font-semibold text-slate-200 text-xs leading-tight">${escapeHtml(item.descricao || 'Operação')}</p>
+              <p class="text-[10px] text-slate-400">${item.data_formatada || ''} • <span class="text-slate-500">${escapeHtml(item.contraparte || '')}</span></p>
+            </div>
+          </div>
+          <div class="text-right">
+            <span class="font-mono text-xs font-bold ${isEntrada ? 'text-emerald-400' : 'text-slate-200'}">
+              ${item.valor_formatado || formatarMoeda(item.valor)}
+            </span>
+          </div>
+        </div>
+      `;
+    }).join('');
+
+    return `
+      <div class="mt-2.5 p-3.5 bg-slate-900/90 border border-slate-700/80 rounded-xl space-y-2 shadow-lg">
+        <div class="flex items-center justify-between pb-1 text-xs text-slate-400 font-medium">
+          <span>Últimos Lançamentos</span>
+          <span class="text-[10px] font-mono">${d.length} operações</span>
+        </div>
+        <div class="space-y-1.5">
+          ${itens}
+        </div>
+      </div>
+    `;
+  }
+
+  if (tipo === 'pix' && Array.isArray(d)) {
+    const contatos = d.map(c => {
+      const safeTitular = (c.titular || '').replace(/'/g, "\\'");
+      return `
+        <div class="flex items-center justify-between p-2.5 rounded-xl bg-slate-950/70 border border-slate-800 hover:border-indigo-500/50 transition">
+          <div class="flex items-center gap-2.5">
+            <div class="w-7 h-7 rounded-lg bg-indigo-600/20 text-indigo-400 border border-indigo-500/30 flex items-center justify-center text-xs font-bold">
+              ${(c.titular || 'C').charAt(0).toUpperCase()}
+            </div>
+            <div>
+              <p class="font-semibold text-slate-200 text-xs">${escapeHtml(c.titular)}</p>
+              <p class="text-[10px] font-mono text-slate-400">Conta ${c.conta} • Ag ${c.agencia}</p>
+            </div>
+          </div>
+          <button
+            onclick="iniciarPixParaContato('${c.numero}', '${safeTitular}')"
+            class="px-2.5 py-1 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white font-medium text-[11px] transition shadow flex items-center gap-1"
+          >
+            <i class="fa-solid fa-paper-plane text-[10px]"></i>
+            <span>Transferir</span>
+          </button>
+        </div>
+      `;
+    }).join('');
+
+    return `
+      <div class="mt-2.5 p-3.5 bg-slate-900/90 border border-slate-700/80 rounded-xl space-y-2.5 shadow-lg">
+        <div class="flex items-center justify-between text-xs text-slate-400 font-medium">
+          <span class="flex items-center gap-1.5">
+            <i class="fa-brands fa-pix text-indigo-400"></i> Sugestões para Envio Imediato
+          </span>
+          <span class="text-[10px] font-mono">${d.length} contatos</span>
+        </div>
+        <div class="space-y-1.5">
+          ${contatos}
+        </div>
+      </div>
+    `;
+  }
+
+  if (tipo === 'contas' && Array.isArray(d)) {
+    const contas = d.map(c => `
+      <div class="p-2.5 rounded-xl bg-slate-950/70 border border-slate-800 hover:border-indigo-500/40 transition">
+        <div class="flex items-center justify-between">
+          <div class="flex items-center gap-2">
+            <span class="font-mono text-xs font-bold text-white">Conta ${c.conta}</span>
+            <span class="px-1.5 py-0.5 rounded text-[9px] uppercase font-mono bg-slate-800 text-slate-300">${c.tipo}</span>
+          </div>
+          <span class="font-mono text-xs font-bold text-emerald-400">${c.saldo_formatado}</span>
+        </div>
+        <div class="flex items-center justify-between mt-1 text-[10px] text-slate-400">
+          <span>${escapeHtml(c.titular)}</span>
+          <button onclick="selecionarContaDoChat(${c.id})" class="text-indigo-400 hover:underline">Selecionar</button>
+        </div>
+      </div>
+    `).join('');
+
+    return `
+      <div class="mt-2.5 p-3.5 bg-slate-900/90 border border-slate-700/80 rounded-xl space-y-2 shadow-lg">
+        <div class="flex items-center justify-between text-xs text-slate-400 font-medium pb-1">
+          <span>Visão Geral de Contas</span>
+          <span class="text-[10px] font-mono">${d.length} contas</span>
+        </div>
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+          ${contas}
+        </div>
+      </div>
+    `;
+  }
+
+  if (tipo === 'agencias' && Array.isArray(d)) {
+    const ags = d.map(a => `
+      <div class="p-2.5 rounded-xl bg-slate-950/70 border border-slate-800 hover:border-indigo-500/40 transition">
+        <div class="flex items-center justify-between">
+          <span class="font-bold text-white text-xs">Ag. ${a.codigo} — ${escapeHtml(a.nome)}</span>
+          <span class="text-[10px] font-mono px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">${a.total_contas} contas</span>
+        </div>
+        <div class="mt-1 flex items-center justify-between text-[10px] text-slate-400">
+          <span>${escapeHtml(a.cidade)}/${escapeHtml(a.estado)} • ${escapeHtml(a.telefone)}</span>
+          <span class="font-mono text-slate-300 font-medium">${a.saldo_total_formatado}</span>
+        </div>
+      </div>
+    `).join('');
+
+    return `
+      <div class="mt-2.5 p-3.5 bg-slate-900/90 border border-slate-700/80 rounded-xl space-y-2 shadow-lg">
+        <div class="flex items-center justify-between text-xs text-slate-400 font-medium pb-1">
+          <span>Rede de Agências Bancárias</span>
+          <span class="text-[10px] font-mono">${d.length} agências ativas</span>
+        </div>
+        <div class="space-y-1.5 max-h-52 overflow-y-auto pr-1">
+          ${ags}
+        </div>
+      </div>
+    `;
+  }
+
+  if (tipo === 'saldo_cliente' && d) {
+    const contasCliente = Array.isArray(d.contas) ? d.contas.map(ct => `
+      <div class="flex items-center justify-between p-2 rounded-lg bg-slate-950/60 border border-slate-800 text-[11px]">
+        <div>
+          <span class="font-mono font-bold text-white">${ct.conta}</span>
+          <span class="ml-1.5 text-slate-400 capitalize">(${ct.tipo})</span>
+        </div>
+        <div class="text-right font-mono">
+          <span class="text-emerald-400 font-bold">${ct.saldo_formatado}</span>
+          <span class="text-[10px] text-slate-500 block">Disp: ${ct.saldo_disponivel_formatado}</span>
+        </div>
+      </div>
+    `).join('') : '';
+
+    return `
+      <div class="mt-2.5 p-3.5 bg-slate-900/90 border border-slate-700/80 rounded-xl space-y-2.5 shadow-lg">
+        <div class="flex items-center justify-between border-b border-slate-800 pb-2">
+          <div>
+            <h4 class="font-bold text-white text-xs">${escapeHtml(d.cliente)}</h4>
+            <span class="text-[10px] font-mono text-slate-400">CPF: ${d.cpf || 'Não informado'}</span>
+          </div>
+          <div class="text-right">
+            <span class="text-[10px] text-slate-400 block font-medium">Total Disponível</span>
+            <span class="text-sm font-bold text-indigo-300 font-mono">${formatarMoeda(d.total_disponivel)}</span>
+          </div>
+        </div>
+        <div class="space-y-1.5">
+          ${contasCliente}
+        </div>
+      </div>
+    `;
+  }
+
+  if (tipo === 'custodia_total' && d) {
+    return `
+      <div class="mt-2.5 p-3.5 bg-slate-900/90 border border-slate-700/80 rounded-xl space-y-3 shadow-lg">
+        <div class="text-center py-1">
+          <span class="text-[11px] text-slate-400 uppercase tracking-wider block font-medium">Custódia Total sob Gestão</span>
+          <span class="text-2xl font-black text-emerald-400 font-mono">${formatarMoeda(d.custodia_total)}</span>
+        </div>
+        <div class="grid grid-cols-3 gap-2 pt-2 border-t border-slate-800 text-center">
+          <div class="p-2 rounded-lg bg-slate-950/60 border border-slate-800">
+            <span class="text-[10px] text-slate-400 block">Contas Ativas</span>
+            <span class="text-xs font-bold text-white font-mono">${d.total_contas}</span>
+          </div>
+          <div class="p-2 rounded-lg bg-slate-950/60 border border-slate-800">
+            <span class="text-[10px] text-slate-400 block">Clientes</span>
+            <span class="text-xs font-bold text-white font-mono">${d.total_clientes}</span>
+          </div>
+          <div class="p-2 rounded-lg bg-slate-950/60 border border-slate-800">
+            <span class="text-[10px] text-slate-400 block">Agências</span>
+            <span class="text-xs font-bold text-white font-mono">${d.agencias_ativas}</span>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  if (tipo === 'ultima_transferencia' && d) {
+    return `
+      <div class="mt-2.5 p-3.5 bg-slate-900/90 border border-slate-700/80 rounded-xl space-y-2.5 shadow-lg">
+        <div class="flex items-center justify-between border-b border-slate-800 pb-2">
+          <span class="text-xs font-bold text-white flex items-center gap-1.5">
+            <i class="fa-solid fa-arrow-right-arrow-left text-indigo-400"></i> Última Transferência
+          </span>
+          <span class="font-mono text-xs font-bold text-indigo-300">${formatarMoeda(d.valor)}</span>
+        </div>
+        <div class="grid grid-cols-2 gap-2 text-[11px]">
+          <div class="p-2 rounded-lg bg-slate-950/60 border border-slate-800">
+            <span class="text-[10px] text-slate-400 block">Remetente</span>
+            <span class="font-semibold text-slate-200 block truncate">${escapeHtml(d.remetente || '-')}</span>
+            <span class="text-[10px] font-mono text-slate-500">Conta ${d.origem}</span>
+          </div>
+          <div class="p-2 rounded-lg bg-slate-950/60 border border-slate-800">
+            <span class="text-[10px] text-slate-400 block">Destinatário</span>
+            <span class="font-semibold text-slate-200 block truncate">${escapeHtml(d.destinatario || '-')}</span>
+            <span class="text-[10px] font-mono text-slate-500">Conta ${d.destino}</span>
+          </div>
+        </div>
+        <div class="text-[10px] text-slate-400 text-right">
+          Realizada em: ${d.data_formatada || '-'}
+        </div>
+      </div>
+    `;
+  }
+
+  return '';
+}
+
+function iniciarPixParaContato(contaNumero, titular) {
+  fecharCommandPalette();
+  if (!state.contaClienteAtiva && state.todasContas.length > 0) {
+    state.contaClienteAtiva = state.todasContas[0];
+  }
+  abrirModalPix();
+  const select = document.getElementById('pixContaDestino');
+  if (select && contaNumero) {
+    select.value = contaNumero;
+  }
+  showToast(`Destinatário selecionado: ${titular}`, 'sucesso');
+}
+
+async function selecionarContaDoChat(contaId) {
+  fecharCommandPalette();
+  trocarAba('cliente');
+  await selecionarContaCliente(contaId);
+  showToast('Conta selecionada com sucesso!', 'sucesso');
 }

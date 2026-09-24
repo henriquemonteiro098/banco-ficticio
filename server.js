@@ -7,6 +7,7 @@ const cors = require('cors');
 const path = require('path');
 const { Pool } = require('pg');
 require('dotenv').config();
+const { processarConsultaAssistente } = require('./assistant');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -537,17 +538,54 @@ app.post('/api/cliente/pagamento', async (req, res) => {
   }
 });
 
+// ─── 🤖 Assistente Bancário & Command Palette ────────────────────────────────
+app.post('/api/assistente/consulta', async (req, res) => {
+  const { mensagem, conta_id, cliente_id, papel } = req.body || {};
+
+  if (!mensagem || typeof mensagem !== 'string' || !mensagem.trim()) {
+    return res.status(400).json({
+      sucesso: false,
+      mensagem: 'Mensagem não informada.',
+      detalhe: 'O campo mensagem é obrigatório no corpo da requisição.',
+    });
+  }
+
+  try {
+    const parsedContaId = conta_id && !isNaN(parseInt(conta_id, 10)) ? parseInt(conta_id, 10) : undefined;
+    const parsedClienteId = cliente_id && !isNaN(parseInt(cliente_id, 10)) ? parseInt(cliente_id, 10) : undefined;
+
+    const resposta = await processarConsultaAssistente(pool, {
+      mensagem: mensagem.trim(),
+      conta_id: parsedContaId,
+      cliente_id: parsedClienteId,
+      papel,
+    });
+    res.json(resposta);
+  } catch (err) {
+    res.status(500).json({
+      sucesso: false,
+      mensagem: 'Não foi possível processar a consulta bancária no momento.',
+      detalhe: err.message,
+    });
+  }
+});
+
 // Fallback SPA
 app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
 // Iniciar servidor
-app.listen(PORT, () => {
-  console.log(`\n======================================================`);
-  console.log(`🏦 Servidor Banco Fictício rodando com sucesso!`);
-  console.log(`📍 URL: http://localhost:${PORT}`);
-  console.log(`🐘 Conectado ao PostgreSQL: banco_ficticio`);
-  console.log(`🔑 Login Admin: admin / admin`);
-  console.log(`======================================================\n`);
-});
+if (require.main === module) {
+  app.listen(PORT, () => {
+    console.log(`\n======================================================`);
+    console.log(`🏦 Servidor Banco Fictício rodando com sucesso!`);
+    console.log(`📍 URL: http://localhost:${PORT}`);
+    console.log(`🐘 Conectado ao PostgreSQL: banco_ficticio`);
+    console.log(`🔑 Login Admin: admin / admin`);
+    console.log(`======================================================\n`);
+  });
+}
+
+module.exports = { app, pool };
+
