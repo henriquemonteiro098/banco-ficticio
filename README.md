@@ -1,96 +1,97 @@
-# 🏦 Banco Fictício — Sistema Bancário Completo
+# Banco Fictício: relational database and banking interface
 
-Projeto prático de banco de dados relacional com PostgreSQL, painel de gestão financeira e interface de Internet Banking.
+A hands-on study project with PostgreSQL, a Node.js management dashboard, and a client-facing online banking interface.
 
-## Pré-requisitos
+This repository is built for learning database modeling, SQL transactions, and full-stack integration without dealing with real-world financial risks.
 
-| Ferramenta | Versão recomendada |
+## Prerequisites
+
+| Tool | Recommended version |
 |---|---|
 | macOS | 13+ |
-| PostgreSQL | 14+ (testado no 18.6) |
-| Node.js | 18+ (testado no v26.8) |
-| VS Code & SQLTools | Recente |
-| Git & GitHub CLI (`gh`) | Recente |
+| PostgreSQL | 14+ (tested on 18.6) |
+| Node.js | 18+ (tested on v26.8) |
+| VS Code and SQLTools extension | Recent |
+| Git and GitHub CLI (`gh`) | Recent |
 
-## 🚀 Inicialização Rápida
+## Quick start
 
-### 1. Bootstrap do Banco de Dados
+### 1. Database setup
 ```bash
-# Executa a verificação, criação do banco, schema e dados de teste (idempotente)
+# Checks prerequisites, creates the database, schema, and sample data
 ./setup.sh
 ```
 
-### 2. Iniciar a Interface Web (Dashboard & Internet Banking)
+### 2. Start the web interface (dashboard and online banking)
 ```bash
-# Instala dependências (se ainda não instalou)
+# Install dependencies
 npm install
 
-# Inicia o servidor na porta 3000
+# Start the server on port 3000
 npm start
 ```
 
-Acesse no seu navegador: **[http://localhost:3000](http://localhost:3000)**
+Open your browser at [http://localhost:3000](http://localhost:3000).
 
 ---
 
-## 🔑 Credenciais de Acesso
+## Access credentials
 
-| Perfil | Usuário (Login) | Senha | Descrição |
+| Role | Username | Password | Notes |
 |---|---|---|---|
-| **Administrador Geral** | `admin` | `admin` | Acesso completo ao painel do banco, tesouraria e operações |
-| **Cliente (Exemplo 1)** | `ana.souza` | `123456` | Acesso ao Internet Banking de Ana Paula Souza |
-| **Cliente (Exemplo 2)** | `carla.ferreira` | `123456` | Acesso ao Internet Banking de Carla Mendes |
-| **Cliente (Exemplo 3)** | `bruno.lima` | `123456` | Acesso ao Internet Banking de Bruno Costa Lima |
+| General administrator | `admin` | `admin` | Full access to branch balances, treasury, and administrative operations |
+| Customer (sample 1) | `ana.souza` | `123456` | Online banking for Ana Paula Souza |
+| Customer (sample 2) | `carla.ferreira` | `123456` | Online banking for Carla Mendes |
+| Customer (sample 3) | `bruno.lima` | `123456` | Online banking for Bruno Costa Lima |
 
-*(Na tela de login há botões de atalho para preenchimento e teste imediato em 1 clique).*
-
----
-
-## 💻 Funcionalidades da Interface Visual
-
-A aplicação web possui duas áreas principais:
-
-### 1. 🏛️ O Banco (Painel Gerencial / Tesouraria)
-- **Indicadores em Tempo Real**: Total sob custódia (saldo consolidado), clientes ativos, contas cadastradas e volume movimentado.
-- **Gráfico Interativo**: Distribuição do volume financeiro por tipo de operação (PIX, depósitos, saques, pagamentos, tarifas).
-- **Ranking de Agências**: Volume financeiro sob custódia por agência.
-- **Gestão de Contas**: Tabela de todas as contas com busca instantânea e atalho de acesso direto ao cliente.
-- **Auditoria de Transações Globais**: Histórico de todas as transações com filtro por tipo.
-- **Operação Administrativa do Banco**: Realizar depósitos em dinheiro no caixa ou lançamentos de tarifas com atualização imediata de saldo no PostgreSQL.
-
-### 2. 👤 Área do Cliente (Internet Banking)
-- **Cartão Digital**: Cartão bancário estilizado com número da conta, agência e titular.
-- **Visão de Saldo**: Saldo em conta, limite de cheque especial e saldo total disponível.
-- **Seletor de Contas**: Alternar facilmente entre contas do cliente (corrente, poupança, etc.).
-- **Transferência / PIX Instantâneo**: Formulário com validação de saldo e execução atômica (`BEGIN ... COMMIT`) debitando o remetente e creditando o destinatário no PostgreSQL em tempo real.
-- **Pagamento de Títulos**: Liquidação de boletos/contas com dedução de saldo e registro no extrato.
-- **Extrato Detalhado**: Histórico de entradas (+) e saídas (-) com filtros por tipo e contrapartes identificadas.
+The login page includes quick-fill buttons for testing each account in one click.
 
 ---
 
-## 📁 Estrutura do Repositório
+## Web interface features
+
+The application is split into two main sections:
+
+### 1. Bank management dashboard (treasury)
+- Balance overview: total funds under custody, active clients, registered accounts, and total transaction volume.
+- Operations chart: breakdown of transaction volume by type (PIX, deposits, withdrawals, payments, fees).
+- Branch ranking: volume held across branches.
+- Account management: searchable table of all accounts with quick links to view client details.
+- Audit log: complete transaction history with filtering by operation type.
+- Administrative tools: deposit cash at the counter or apply maintenance fees with immediate balance updates in PostgreSQL.
+
+### 2. Customer portal (online banking)
+- Account card: virtual card displaying account number, branch, and holder name.
+- Balance details: current balance, overdraft limit, and total available funds.
+- Account switcher: toggle between different accounts owned by the same user (checking, savings).
+- Instant transfers (PIX): transfer form with balance checks and atomic execution (`BEGIN ... COMMIT`) that updates both accounts in real time.
+- Bill payments: settle bills with balance deduction and statement logging.
+- Detailed statement: filterable history of inflows (+) and outflows (-) showing counterparty details.
+
+---
+
+## Repository structure
 
 ```
 banco-ficticio/
-├── server.js              # Servidor Node.js + Express conectado via pool PostgreSQL
-├── package.json           # Dependências (express, pg, cors, dotenv)
-├── public/                # Frontend da aplicação web
-│   ├── index.html         # Estrutura HTML responsiva (TailwindCSS)
-│   ├── app.js             # Lógica reativa, Chart.js e integração com a API
-│   └── styles.css         # Estilização refinada
-├── setup.sh               # Script bash de automação e validação completa
-├── 01_schema.sql          # DDL: tabelas (usuarios, agencias, clientes, contas, transacoes)
-├── 02_seed.sql            # DML: agencias, clientes, contas, transações e usuarios (admin/clientes)
-├── 03_consultas.sql       # 15 consultas demonstrativas e analíticas documentadas
-├── .gitignore             # Ignora node_modules, logs e arquivos de ambiente
-├── .vscode/
-│   └── settings.json      # Conexão automática para a extensão SQLTools
-└── docs/                  # Documentações adicionais
+├── server.js              # Node.js and Express server with a PostgreSQL connection pool
+├── package.json           # Dependencies (express, pg, cors, dotenv)
+├── public/                # Web frontend
+│   ├── index.html         # Responsive interface built with Tailwind CSS
+│   ├── app.js             # UI state, Chart.js graphs, and API calls
+│   └── styles.css         # Custom styling
+├── setup.sh               # Shell script for database verification and setup
+├── 01_schema.sql          # Tables (usuarios, agencias, clientes, contas, transacoes)
+├── 02_seed.sql            # Seed data for branches, users, accounts, and transactions
+├── 03_consultas.sql       # 15 documented SQL queries for reporting and analytics
+├── .gitignore             # Standard ignore rules for Node and local files
+└── .vscode/
+    └── settings.json      # Connection profile for the SQLTools extension
 ```
 
 ---
 
-## 🗄️ Modelo Relacional (PostgreSQL)
+## Relational data model
 
 ```
              ┌────────── usuarios (admin/cliente)
@@ -104,30 +105,31 @@ agencias ────┼──────────── clientes
 
 ---
 
-## 🛠️ Usando no VS Code com SQLTools
+## Running queries in VS Code with SQLTools
 
-1. Com o VS Code aberto no projeto (`code .`), acesse o painel **SQLTools** na barra lateral esquerda.
-2. Clique na conexão **banco_ficticio (local)** configurada em `.vscode/settings.json`.
-3. Abra [`03_consultas.sql`](./03_consultas.sql), selecione qualquer consulta e pressione `Ctrl+E Ctrl+E` para executá-la diretamente.
+1. Open the project in VS Code (`code .`).
+2. Go to the SQLTools tab on the left sidebar.
+3. Click the connection named `banco_ficticio (local)` configured in `.vscode/settings.json`.
+4. Open [`03_consultas.sql`](./03_consultas.sql), select any query, and press `Ctrl+E Ctrl+E` to run it.
 
 ---
 
-## 🐘 Usando no pgAdmin 4
+## Connecting with pgAdmin 4
 
-1. Abra o **pgAdmin 4**.
-2. Clique em **Add New Server**.
-3. Em **General** → Nome: `Banco Fictício Local`.
-4. Em **Connection**:
+1. Open pgAdmin 4.
+2. Click Add New Server.
+3. In General, set Name to `Banco Fictício Local`.
+4. In Connection, enter:
    - Host: `127.0.0.1`
    - Port: `5432`
    - Database: `banco_ficticio`
    - Username: `henriquemonteiro`
-   - Password: *(em branco)*
-5. Clique em **Save**.
+   - Password: (leave empty if using peer/trust local authentication)
+5. Click Save.
 
 ---
 
-## 🔗 Repositório Oficial
+## Repository link
 
-Repositório público no GitHub:
+GitHub repository:
 [https://github.com/henriquemonteiro098/banco-ficticio](https://github.com/henriquemonteiro098/banco-ficticio)
