@@ -146,6 +146,18 @@ INSERT INTO transacoes (tipo, status, valor, descricao, conta_origem_id, conta_d
   ('transferencia', 'pendente',   600.00,  'PIX agendado — amanhã',          1,  13,  NOW() - INTERVAL '10 minutes')
 ON CONFLICT DO NOTHING;
 
+-- -----------------------------------------------------------------------------
+-- Usuários (Acesso ao Sistema e Interface Web)
+-- -----------------------------------------------------------------------------
+INSERT INTO usuarios (login, senha, nome, papel, cliente_id) VALUES
+  ('admin',          'admin',  'Administrador do Banco', 'admin',   NULL),
+  ('ana.souza',      '123456', 'Ana Paula Souza',        'cliente', 1),
+  ('bruno.lima',     '123456', 'Bruno Costa Lima',       'cliente', 2),
+  ('carla.ferreira', '123456', 'Carla Mendes Ferreira', 'cliente', 3),
+  ('diego.ribeiro',  '123456', 'Diego Alves Ribeiro',    'cliente', 4),
+  ('elena.castro',   '123456', 'Elena Martins Castro',   'cliente', 5)
+ON CONFLICT (login) DO NOTHING;
+
 -- =============================================================================
 -- Seed aplicado com sucesso!
 -- =============================================================================

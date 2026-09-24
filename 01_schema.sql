@@ -7,6 +7,7 @@
 -- -----------------------------------------------------------------------------
 -- Limpar schema anterior (ordem inversa de dependências)
 -- -----------------------------------------------------------------------------
+DROP TABLE IF EXISTS usuarios      CASCADE;
 DROP TABLE IF EXISTS transacoes    CASCADE;
 DROP TABLE IF EXISTS contas        CASCADE;
 DROP TABLE IF EXISTS clientes      CASCADE;
@@ -93,6 +94,25 @@ COMMENT ON TABLE  clientes     IS 'Clientes cadastrados no banco';
 COMMENT ON COLUMN clientes.cpf IS 'Apenas dígitos, sem pontuação';
 
 -- -----------------------------------------------------------------------------
+-- Tabela: usuarios
+-- -----------------------------------------------------------------------------
+CREATE TABLE usuarios (
+    id              SERIAL          PRIMARY KEY,
+    login           VARCHAR(50)     NOT NULL UNIQUE,
+    senha           VARCHAR(255)    NOT NULL,
+    nome            VARCHAR(100)    NOT NULL,
+    papel           VARCHAR(20)     NOT NULL DEFAULT 'cliente', -- 'admin' ou 'cliente'
+    cliente_id      INT             REFERENCES clientes(id) ON DELETE SET NULL,
+    ativo           BOOLEAN         NOT NULL DEFAULT true,
+    criado_em       TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
+    atualizado_em   TIMESTAMPTZ     NOT NULL DEFAULT NOW()
+);
+
+COMMENT ON TABLE  usuarios       IS 'Usuários do sistema bancário (admin e clientes)';
+COMMENT ON COLUMN usuarios.login IS 'Login único para autenticação';
+COMMENT ON COLUMN usuarios.papel IS 'Papel do usuário: admin ou cliente';
+
+-- -----------------------------------------------------------------------------
 -- Tabela: contas
 -- -----------------------------------------------------------------------------
 CREATE TABLE contas (
@@ -157,6 +177,8 @@ CREATE INDEX idx_transacoes_realizada  ON transacoes  (realizada_em DESC);
 CREATE INDEX idx_transacoes_tipo       ON transacoes  (tipo);
 CREATE INDEX idx_clientes_cpf          ON clientes    (cpf);
 CREATE INDEX idx_clientes_email        ON clientes    (email);
+CREATE INDEX idx_usuarios_login        ON usuarios    (login);
+CREATE INDEX idx_usuarios_cliente_id   ON usuarios    (cliente_id);
 
 -- -----------------------------------------------------------------------------
 -- Trigger: atualizar coluna atualizado_em automaticamente
@@ -179,6 +201,10 @@ CREATE TRIGGER trg_clientes_atualizado_em
 
 CREATE TRIGGER trg_contas_atualizado_em
     BEFORE UPDATE ON contas
+    FOR EACH ROW EXECUTE FUNCTION fn_set_atualizado_em();
+
+CREATE TRIGGER trg_usuarios_atualizado_em
+    BEFORE UPDATE ON usuarios
     FOR EACH ROW EXECUTE FUNCTION fn_set_atualizado_em();
 
 -- -----------------------------------------------------------------------------

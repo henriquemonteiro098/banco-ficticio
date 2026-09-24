@@ -154,11 +154,13 @@ COUNT_AG=$(run_count agencias)
 COUNT_CL=$(run_count clientes)
 COUNT_CT=$(run_count contas)
 COUNT_TR=$(run_count transacoes)
+COUNT_US=$(run_count usuarios)
 
 ok "agencias   : ${COUNT_AG} registros"
 ok "clientes   : ${COUNT_CL} registros"
 ok "contas     : ${COUNT_CT} registros"
 ok "transacoes : ${COUNT_TR} registros"
+ok "usuarios   : ${COUNT_US} registros (admin:admin disponível)"
 
 # Verifica saldo total
 SALDO_TOTAL=$(psql -h "${DB_HOST}" -p "${DB_PORT}" -U "${DB_USER}" -d "${DB_NAME}" \
@@ -180,14 +182,14 @@ echo -e "    Porta    : ${CYAN}${DB_PORT}${RESET}"
 echo -e "    Database : ${CYAN}${DB_NAME}${RESET}"
 echo -e "    Usuário  : ${CYAN}${DB_USER}${RESET}"
 echo ""
-echo -e "  ${BOLD}String de conexão:${RESET}"
-echo -e "    ${CYAN}postgresql://${DB_USER}@${DB_HOST}:${DB_PORT}/${DB_NAME}${RESET}"
+echo -e "  ${BOLD}Interface Visual (Web App):${RESET}"
+echo -e "    Iniciar servidor: ${CYAN}npm start${RESET}"
+echo -e "    Acessar no navegador: ${CYAN}http://localhost:3000${RESET}"
+echo -e "    Credenciais de Administrador: ${CYAN}admin${RESET} / ${CYAN}admin${RESET}"
 echo ""
 echo -e "  ${BOLD}Próximos passos:${RESET}"
-echo -e "    1. Abra o projeto no VS Code: ${CYAN}code .${RESET}"
-echo -e "    2. Instale as extensões SQLTools se ainda não instalou:"
-echo -e "       ${CYAN}code --install-extension mtxr.sqltools${RESET}"
-echo -e "       ${CYAN}code --install-extension mtxr.sqltools-driver-pg${RESET}"
+echo -e "    1. Inicie a interface web: ${CYAN}npm start${RESET}"
+echo -e "    2. Abra o projeto no VS Code: ${CYAN}code .${RESET}"
 echo -e "    3. Conecte via SQLTools → banco_ficticio (local)"
 echo -e "    4. Execute as consultas em ${CYAN}03_consultas.sql${RESET}"
 echo ""
