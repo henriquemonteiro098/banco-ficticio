@@ -1,0 +1,45 @@
+# Ambiente
+.env
+.env.local
+.env.*.local
+
+# Logs
+*.log
+logs/
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon
+._*
+.DocumentRevisions-V100
+.fseventsd
+.Spotlight-V100
+.TemporaryItems
+.Trashes
+.VolumeIcon.icns
+.com.apple.timemachine.donotpresent
+
+# VS Code (mantém apenas settings de projeto)
+.vscode/*
+!.vscode/settings.json
+!.vscode/extensions.json
+
+# PostgreSQL dumps locais
+*.dump
+*.sql.gz
+*.backup
+
+# Dados sensíveis
+secrets/
+credentials/
+passwords.txt
+
+# Temporários
+tmp/
+temp/
+*.tmp
+*.bak
+*.swp
+*~

@@ -1,0 +1,38 @@
+{
+  // ─── SQLTools ────────────────────────────────────────────────────────────────
+  "sqltools.connections": [
+    {
+      "name": "banco_ficticio (local)",
+      "driver": "PostgreSQL",
+      "server": "127.0.0.1",
+      "port": 5432,
+      "database": "banco_ficticio",
+      "username": "henriquemonteiro",
+      "passwordMode": "empty",
+      "previewLimit": 50,
+      "connectionTimeout": 15
+    }
+  ],
+  "sqltools.autoOpenSessionFiles": false,
+  "sqltools.highlightQuery": true,
+  "sqltools.format": {
+    "language": "sql",
+    "indentSize": 2
+  },
+
+  // ─── Editor ──────────────────────────────────────────────────────────────────
+  "[sql]": {
+    "editor.formatOnSave": false,
+    "editor.tabSize": 2,
+    "editor.insertSpaces": true,
+    "editor.wordWrap": "on"
+  },
+  "editor.rulers": [80, 120],
+
+  // ─── Files ───────────────────────────────────────────────────────────────────
+  "files.associations": {
+    "*.sql": "sql"
+  },
+  "files.trimTrailingWhitespace": true,
+  "files.insertFinalNewline": true
+}
