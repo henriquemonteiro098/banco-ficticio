@@ -362,12 +362,14 @@ function tratarComandoAjuda() {
     '• /pix: Sugere destinatários frequentes para transferências imediatas.',
     '• /contas: Consulta as contas cadastradas e seus saldos.',
     '• /agencias: Lista as agências bancárias, códigos e cidades.',
+    '• /emprestimo: Simulação e contratação de crédito pessoal a 1,89% a.m.',
     '• /ajuda: Apresenta este guia de comandos e orientações.',
     '',
     'Exemplos de perguntas em linguagem natural:',
     '• "Qual o saldo da Ana Paula?"',
     '• "Quanto temos sob custódia no banco?"',
     '• "Qual foi a última transferência?"',
+    '• "Quanto fica um empréstimo de 5000 em 12x?"',
     '• "Quantos clientes temos cadastrados?"',
     '• "Quais são as maiores agências do banco?"',
     '• "Qual foi o maior depósito realizado?"',
@@ -387,16 +389,124 @@ function tratarComandoAjuda() {
         { comando: '/pix', descricao: 'Sugestões de destinatários para transferência instantânea' },
         { comando: '/contas', descricao: 'Listagem de contas ativas cadastradas' },
         { comando: '/agencias', descricao: 'Rede de agências bancárias e contatos' },
+        { comando: '/emprestimo', descricao: 'Simulação e contratação de crédito pessoal a 1,89% a.m.' },
         { comando: '/ajuda', descricao: 'Catálogo de comandos e exemplos de uso' },
       ],
       exemplos_perguntas: [
         'Qual o saldo da Ana Paula?',
         'Quanto temos sob custódia no banco?',
         'Qual foi a última transferência?',
+        'Quanto fica um empréstimo de 5000 em 12x?',
         'Quantos clientes temos cadastrados?',
         'Quais são as maiores agências do banco?',
         'Qual foi o maior depósito realizado?',
       ],
+    },
+  };
+}
+
+/**
+ * Realiza os cálculos financeiros de um empréstimo pelo Sistema Francês / Tabela Price.
+ * Taxa mensal fixa de 1,89% a.m. (CET: 25,19% a.a.)
+ * @param {number|string} valor
+ * @param {number|string} meses
+ * @returns {object}
+ */
+function calcularEmprestimo(valor, meses) {
+  const vParsed = parseFloat(valor);
+  const v = Math.min(Math.max(isNaN(vParsed) ? 5000 : vParsed, 500), 50000);
+  const nParsed = parseInt(meses, 10);
+  const n = Math.min(Math.max(isNaN(nParsed) ? 12 : nParsed, 6), 48);
+  const taxaMensal = 0.0189; // 1,89% a.m.
+
+  const fator = Math.pow(1 + taxaMensal, n);
+  const pmt = v * (taxaMensal * fator) / (fator - 1);
+  const valorParcela = Math.round(pmt * 100) / 100;
+  const total = Math.round(valorParcela * n * 100) / 100;
+  const juros = Math.round((total - v) * 100) / 100;
+  const cetAnual = Math.round((Math.pow(1 + taxaMensal, 12) - 1) * 10000) / 100; // 25.19%
+
+  return {
+    valor_solicitado: Math.round(v * 100) / 100,
+    valor_solicitado_formatado: formatarBRL(v),
+    meses: n,
+    taxa_mensal: taxaMensal,
+    taxa_mensal_formatada: '1,89% a.m.',
+    taxa_mensal_percentual: '1,89% a.m.',
+    taxa_anual_cet: cetAnual,
+    taxa_anual_cet_formatada: '25,19% a.a.',
+    cet_anual_percentual: '25,19% a.a.',
+    valor_parcela: valorParcela,
+    parcela_mensal: valorParcela,
+    valor_parcela_formatado: formatarBRL(valorParcela),
+    total_a_pagar: total,
+    total_a_pagar_formatado: formatarBRL(total),
+    total_juros: juros,
+    total_juros_formatado: formatarBRL(juros),
+  };
+}
+
+/**
+ * Extrai parâmetros de empréstimo (valor e parcelas) de mensagens em linguagem natural.
+ * @param {string} msg
+ * @returns {{ valor: number|null, meses: number|null }}
+ */
+function extrairParametrosEmprestimoNLP(msg) {
+  let meses = null;
+  let valor = null;
+
+  // Busca número de parcelas: "12x", "em 12 parcelas", "24 vezes", "36 meses"
+  const matchParcelas = msg.match(/(?:em\s+)?(\d{1,2})\s*(?:x|vezes|meses|parcelas)\b/i);
+  if (matchParcelas) {
+    meses = parseInt(matchParcelas[1], 10);
+  }
+
+  // Busca valores monetários: "5000", "5.000", "10000", "R$ 5.000,00"
+  const msgSemParcelas = msg.replace(/(?:em\s+)?\d{1,2}\s*(?:x|vezes|meses|parcelas)\b/gi, '');
+  const matchValor = msgSemParcelas.match(/(?:r\$\s*|de\s+)?(\d{1,3}(?:\.\d{3})+|\d{3,5})(?:,\d{2})?/i);
+  if (matchValor) {
+    const rawVal = matchValor[1].replace(/\./g, '');
+    const v = parseFloat(rawVal);
+    if (!isNaN(v) && v >= 100) {
+      valor = v;
+    }
+  }
+
+  return { valor, meses };
+}
+
+/**
+ * Trata comando ou consulta de simulação de empréstimo.
+ */
+async function tratarComandoEmprestimo(pool, contaId, clienteId, valor, meses, isCommand = true) {
+  const conta = await resolverConta(pool, contaId, clienteId);
+  const simulacao = calcularEmprestimo(valor, meses);
+
+  const numContaFmt = conta ? `${conta.numero}-${conta.digito}` : '00010001-5';
+  const titular = conta ? conta.titular : 'Titular';
+
+  const texto = [
+    `Simulação de Empréstimo Pessoal para a conta ${numContaFmt} (${titular}):`,
+    `• Valor Solicitado: ${simulacao.valor_solicitado_formatado}`,
+    `• Prazo: ${simulacao.meses} parcelas fixas`,
+    `• Taxa de Juros: 1,89% a.m. (CET: 25,19% a.a.)`,
+    `• Parcela Mensal: ${simulacao.valor_parcela_formatado}`,
+    `• Total a Pagar: ${simulacao.total_a_pagar_formatado} (Juros: ${simulacao.total_juros_formatado})`,
+    `Você pode efetivar a contratação imediata em 1 clique abaixo ou personalizar as parcelas no simulador.`,
+  ].join('\n');
+
+  return {
+    sucesso: true,
+    comando: 'emprestimo',
+    tipo_resposta: 'emprestimo',
+    tipo: isCommand ? 'comando' : 'pergunta',
+    titulo: 'Simulação de Empréstimo Pessoal',
+    texto,
+    dados: {
+      conta_id: conta ? conta.id : 1,
+      conta: numContaFmt,
+      titular,
+      ...simulacao,
     },
   };
 }
@@ -822,6 +932,26 @@ async function processarConsultaAssistente(pool, { mensagem, conta_id, cliente_i
       case 'agencia':
         resposta = await tratarComandoAgencias(pool);
         break;
+      case 'emprestimo':
+      case 'empréstimo':
+      case 'emprestimos':
+      case 'empréstimos':
+      case 'credito':
+      case 'crédito': {
+        const partes = rawMsg.slice(1).trim().split(/\s+/);
+        let valorArg = null;
+        let mesesArg = null;
+        if (partes.length > 1) {
+          const vNum = parseFloat(partes[1].replace(/[^0-9.,]/g, '').replace(',', '.'));
+          if (!isNaN(vNum)) valorArg = vNum;
+        }
+        if (partes.length > 2) {
+          const mNum = parseInt(partes[2].replace(/[^0-9]/g, ''), 10);
+          if (!isNaN(mNum)) mesesArg = mNum;
+        }
+        resposta = await tratarComandoEmprestimo(pool, conta_id, cliente_id, valorArg, mesesArg, true);
+        break;
+      }
       case 'ajuda':
       case 'help':
         resposta = tratarComandoAjuda();
@@ -841,8 +971,14 @@ async function processarConsultaAssistente(pool, { mensagem, conta_id, cliente_i
   } else {
     // 2. Roteamento de Perguntas em Linguagem Natural
 
+    // Caso Empréstimo / Crédito Pessoal
+    if (/(?:empr[eé]stimo|cr[eé]dito\s+pessoal|simular\s+cr[eé]dito|financiar|financiamento|pegar\s+emprestado)/i.test(lowerMsg)) {
+      const params = extrairParametrosEmprestimoNLP(rawMsg);
+      resposta = await tratarComandoEmprestimo(pool, conta_id, cliente_id, params.valor, params.meses, false);
+      resposta.tipo = 'pergunta';
+    }
     // Caso A: Custódia total / patrimônio do banco
-    if (/(?:cust[óo]dia|patrim[ôo]nio|sob\s+gest[ãa]o|total.*guardado|volume.*banco|total.*no\s+banco)/i.test(lowerMsg)) {
+    else if (/(?:cust[óo]dia|patrim[ôo]nio|sob\s+gest[ãa]o|total.*guardado|volume.*banco|total.*no\s+banco)/i.test(lowerMsg)) {
       resposta = await consultarCustodiaTotal(pool);
     }
     // Caso B: Última transferência / movimentação / PIX
@@ -943,5 +1079,8 @@ module.exports = {
   formatarBRL,
   formatarDataHora,
   resolverConta,
+  calcularEmprestimo,
+  extrairParametrosEmprestimoNLP,
+  tratarComandoEmprestimo,
   processarConsultaAssistente,
 };

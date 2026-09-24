@@ -21,6 +21,7 @@ let state = {
     { comando: '/pix', titulo: 'Transferência PIX', descricao: 'Fluxo rápido de transferência PIX', icone: 'fa-bolt' },
     { comando: '/contas', titulo: 'Contas Cadastradas', descricao: 'Visão rápida das contas cadastradas', icone: 'fa-address-card' },
     { comando: '/agencias', titulo: 'Rede de Agências', descricao: 'Consulta de agências bancárias e códigos', icone: 'fa-building-columns' },
+    { comando: '/emprestimo', titulo: 'Simular Empréstimo', descricao: 'Simulação e contratação de crédito pessoal a 1,89% a.m.', icone: 'fa-hand-holding-dollar' },
     { comando: '/ajuda', titulo: 'Guia de Comandos', descricao: 'Lista de comandos e perguntas que o assistente responde', icone: 'fa-circle-question' },
   ],
 };
@@ -76,6 +77,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   await carregarDadosBanco();
   await carregarTodasContas();
   inicializarCommandPalette();
+  inicializarSimuladorEmprestimo();
 });
 
 // Checar conexão com banco de dados
@@ -476,6 +478,12 @@ async function selecionarContaCliente(contaId) {
     document.getElementById('clienteSaldo').textContent = formatarMoeda(saldo);
     document.getElementById('clienteLimite').textContent = formatarMoeda(limite);
     document.getElementById('clienteSaldoDisponivel').textContent = formatarMoeda(saldo + limite);
+
+    // Atualiza conta de destino no simulador de empréstimo
+    const elSimConta = document.getElementById('simuladorContaDestino');
+    if (elSimConta) {
+      elSimConta.textContent = `${ct.numero}-${ct.digito}`;
+    }
 
     // Renderizar extrato
     renderizarExtrato();
@@ -1361,6 +1369,49 @@ function renderizarCardAssistente(data) {
         </div>
       </div>
     `;
+  if (tipo === 'emprestimo' && d) {
+    return `
+      <div class="mt-2.5 p-3.5 bg-slate-900/90 border border-slate-700/80 rounded-xl space-y-3 shadow-lg">
+        <div class="flex items-center justify-between border-b border-slate-800 pb-2">
+          <div class="flex items-center gap-2">
+            <span class="w-6 h-6 rounded bg-emerald-500/20 text-emerald-400 flex items-center justify-center text-xs">
+              <i class="fa-solid fa-hand-holding-dollar"></i>
+            </span>
+            <span class="font-bold text-white text-xs">Empréstimo Pessoal Pré-Aprovado</span>
+          </div>
+          <span class="text-[10px] font-mono px-2 py-0.5 rounded bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">Taxa 1,89% a.m.</span>
+        </div>
+
+        <div class="grid grid-cols-3 gap-2 text-center">
+          <div class="p-2.5 rounded-lg bg-slate-950/70 border border-slate-800">
+            <span class="text-[10px] text-slate-400 block font-medium">Valor Solicitado</span>
+            <span class="text-xs sm:text-sm font-bold text-white font-mono">${d.valor_solicitado_formatado}</span>
+          </div>
+          <div class="p-2.5 rounded-lg bg-slate-950/70 border border-slate-800">
+            <span class="text-[10px] text-slate-400 block font-medium">Prazo &amp; Taxa</span>
+            <span class="text-xs sm:text-sm font-bold text-indigo-300 font-mono">${d.meses}x de 1,89%</span>
+          </div>
+          <div class="p-2.5 rounded-lg bg-emerald-950/40 border border-emerald-500/30">
+            <span class="text-[10px] text-emerald-300 block font-medium">Parcela Mensal</span>
+            <span class="text-xs sm:text-sm font-bold text-emerald-400 font-mono">${d.valor_parcela_formatado}</span>
+          </div>
+        </div>
+
+        <div class="p-2 rounded-lg bg-slate-950/50 border border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-1 text-[11px] text-slate-400">
+          <span>Total a pagar: <strong class="text-slate-200 font-mono">${d.total_a_pagar_formatado}</strong> (CET ${d.cet_anual_percentual})</span>
+          <span>Conta: <strong class="text-slate-200 font-mono">${d.conta}</strong></span>
+        </div>
+
+        <div class="flex items-center justify-end gap-2 pt-1">
+          <button onclick="abrirSimuladorNaAreaCliente(${d.valor_solicitado}, ${d.meses})" class="px-3 py-1.5 text-[11px] font-medium rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition flex items-center gap-1.5 cursor-pointer">
+            <i class="fa-solid fa-sliders text-indigo-400"></i> Ajustar no Simulador
+          </button>
+          <button onclick="contratarEmprestimoDireto(${d.conta_id}, ${d.valor_solicitado}, ${d.meses})" class="px-3 py-1.5 text-[11px] font-semibold rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white transition shadow-md shadow-emerald-600/30 flex items-center gap-1.5 cursor-pointer">
+            <i class="fa-solid fa-check"></i> Contratar Agora (1 Clique)
+          </button>
+        </div>
+      </div>
+    `;
   }
 
   return '';
@@ -1384,4 +1435,178 @@ async function selecionarContaDoChat(contaId) {
   trocarAba('cliente');
   await selecionarContaCliente(contaId);
   showToast('Conta selecionada com sucesso!', 'sucesso');
+}
+
+// ─── 💳 Funções Reativas do Simulador de Empréstimos (R1) ────────────────────
+
+let stateEmprestimo = {
+  valor: 5000,
+  meses: 12,
+  calculo: null,
+};
+
+function inicializarSimuladorEmprestimo() {
+  atualizarCalculoSimulador();
+}
+
+function aoAlterarRangeValor(val) {
+  stateEmprestimo.valor = parseFloat(val) || 500;
+  const input = document.getElementById('inputValorEmprestimo');
+  if (input) input.value = val;
+  atualizarCalculoSimulador();
+}
+
+function aoAlterarInputValor(val) {
+  let v = parseFloat(val);
+  if (isNaN(v)) v = 500;
+  stateEmprestimo.valor = v;
+  const range = document.getElementById('rangeValorEmprestimo');
+  if (range) range.value = Math.min(Math.max(v, 500), 50000);
+  atualizarCalculoSimulador();
+}
+
+function definirValorSimulador(val) {
+  aoAlterarRangeValor(val);
+}
+
+function aoAlterarRangeMeses(val) {
+  stateEmprestimo.meses = parseInt(val, 10) || 12;
+  const input = document.getElementById('inputMesesEmprestimo');
+  if (input) input.value = val;
+  atualizarCalculoSimulador();
+}
+
+function aoAlterarInputMeses(val) {
+  let m = parseInt(val, 10);
+  if (isNaN(m)) m = 12;
+  stateEmprestimo.meses = m;
+  const range = document.getElementById('rangeMesesEmprestimo');
+  if (range) range.value = Math.min(Math.max(m, 6), 48);
+  atualizarCalculoSimulador();
+}
+
+function definirMesesSimulador(val) {
+  aoAlterarRangeMeses(val);
+}
+
+function atualizarCalculoSimulador() {
+  const v = Math.min(Math.max(stateEmprestimo.valor || 5000, 500), 50000);
+  const n = Math.min(Math.max(stateEmprestimo.meses || 12, 6), 48);
+  const taxa = 0.0189; // 1,89% a.m.
+
+  const fator = Math.pow(1 + taxa, n);
+  const pmt = v * (taxa * fator) / (fator - 1);
+  const valorParcela = Math.round(pmt * 100) / 100;
+  const total = Math.round(valorParcela * n * 100) / 100;
+  const juros = Math.round((total - v) * 100) / 100;
+
+  stateEmprestimo.calculo = { valor: v, meses: n, pmt: valorParcela, total, juros };
+
+  const elPmt = document.getElementById('simuladorValorParcela');
+  const elTotal = document.getElementById('simuladorTotalPagar');
+  const elJuros = document.getElementById('simuladorTotalJuros');
+  const elConta = document.getElementById('simuladorContaDestino');
+
+  if (elPmt) elPmt.textContent = formatarMoeda(valorParcela);
+  if (elTotal) elTotal.textContent = formatarMoeda(total);
+  if (elJuros) elJuros.textContent = formatarMoeda(juros);
+  if (elConta) {
+    if (state.contaClienteAtiva) {
+      elConta.textContent = `${state.contaClienteAtiva.numero}-${state.contaClienteAtiva.digito}`;
+    } else if (state.todasContas && state.todasContas.length > 0) {
+      elConta.textContent = `${state.todasContas[0].numero}-${state.todasContas[0].digito}`;
+    }
+  }
+}
+
+function focarSimuladorEmprestimo() {
+  const el = document.getElementById('cardSimuladorEmprestimo');
+  if (el) {
+    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    el.classList.add('ring-2', 'ring-emerald-500/50');
+    setTimeout(() => el.classList.remove('ring-2', 'ring-emerald-500/50'), 1500);
+  }
+}
+
+function abrirSimuladorNaAreaCliente(valor, meses) {
+  fecharCommandPalette();
+  trocarAba('cliente');
+  if (valor) definirValorSimulador(valor);
+  if (meses) definirMesesSimulador(meses);
+  focarSimuladorEmprestimo();
+}
+
+async function contratarEmprestimoDireto(contaId, valor, meses) {
+  fecharCommandPalette();
+  trocarAba('cliente');
+  if (valor) definirValorSimulador(valor);
+  if (meses) definirMesesSimulador(meses);
+  if (contaId && (!state.contaClienteAtiva || state.contaClienteAtiva.id !== contaId)) {
+    await selecionarContaCliente(contaId);
+  }
+  await executarContratacaoEmprestimo();
+}
+
+async function executarContratacaoEmprestimo() {
+  if (!state.contaClienteAtiva) {
+    if (state.todasContas && state.todasContas.length > 0) {
+      await selecionarContaCliente(state.todasContas[0].id);
+    } else {
+      showToast('Selecione uma conta ativa para receber o empréstimo.', 'erro');
+      return;
+    }
+  }
+
+  const btn = document.getElementById('btnContratarEmprestimo');
+  const feedback = document.getElementById('simuladorFeedback');
+  if (feedback) feedback.classList.add('hidden');
+
+  const { valor, meses } = stateEmprestimo.calculo || { valor: 5000, meses: 12 };
+
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = `<i class="fa-solid fa-circle-notch fa-spin"></i> <span>Efetivando transação atômica...</span>`;
+  }
+
+  try {
+    const res = await fetch('/api/cliente/emprestimo/contratar', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        conta_id: state.contaClienteAtiva.id,
+        valor,
+        meses,
+      }),
+    });
+
+    const data = await res.json();
+
+    if (!res.ok || !data.sucesso) {
+      if (feedback) {
+        feedback.textContent = data.erro || 'Falha ao contratar empréstimo.';
+        feedback.className = 'text-xs text-rose-400 block';
+      }
+      showToast(data.erro || 'Erro na contratação', 'erro');
+      return;
+    }
+
+    showToast(`Empréstimo de ${formatarMoeda(valor)} creditado com sucesso!`, 'sucesso');
+
+    // Recarregar dados imediatamente (Saldo, Extrato, Dashboard)
+    await selecionarContaCliente(state.contaClienteAtiva.id);
+    await carregarDadosBanco();
+    await carregarTodasContas();
+
+  } catch (err) {
+    if (feedback) {
+      feedback.textContent = 'Erro ao processar transação no servidor.';
+      feedback.className = 'text-xs text-rose-400 block';
+    }
+    showToast('Erro de conexão ao contratar empréstimo', 'erro');
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = `<i class="fa-solid fa-bolt text-amber-300"></i> <span>Contratar Crédito em 1 Clique</span>`;
+    }
+  }
 }

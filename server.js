@@ -7,7 +7,7 @@ const cors = require('cors');
 const path = require('path');
 const { Pool } = require('pg');
 require('dotenv').config();
-const { processarConsultaAssistente } = require('./assistant');
+const { processarConsultaAssistente, calcularEmprestimo, formatarBRL } = require('./assistant');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -533,6 +533,177 @@ app.post('/api/cliente/pagamento', async (req, res) => {
   } catch (err) {
     await client.query('ROLLBACK');
     res.status(500).json({ erro: 'Erro ao liquidar pagamento', detalhe: err.message });
+  } finally {
+    client.release();
+  }
+});
+
+// ─── 💳 Módulo de Empréstimos & Simulação de Crédito (R1) ────────────────────
+
+// Simulação de Empréstimo Pessoal (Price: 1,89% a.m., CET: 25,19% a.a.)
+const tratarSimulacaoEmprestimo = (req, res) => {
+  const rawValor = req.body?.valor !== undefined ? req.body.valor : req.query?.valor;
+  const rawMeses = req.body?.meses !== undefined ? req.body.meses : req.query?.meses;
+
+  if (rawValor === undefined || rawValor === null || isNaN(parseFloat(rawValor))) {
+    return res.status(400).json({
+      sucesso: false,
+      erro: 'O valor solicitado é obrigatório e deve ser numérico.',
+    });
+  }
+
+  if (rawMeses === undefined || rawMeses === null || isNaN(parseInt(rawMeses, 10))) {
+    return res.status(400).json({
+      sucesso: false,
+      erro: 'O prazo em meses é obrigatório e deve ser um número inteiro.',
+    });
+  }
+
+  const v = parseFloat(rawValor);
+  const n = parseInt(rawMeses, 10);
+
+  if (v < 500 || v > 50000) {
+    return res.status(400).json({
+      sucesso: false,
+      erro: 'O valor do empréstimo deve estar entre R$ 500,00 e R$ 50.000,00.',
+    });
+  }
+
+  if (n < 6 || n > 48) {
+    return res.status(400).json({
+      sucesso: false,
+      erro: 'O prazo do empréstimo deve estar entre 6 e 48 meses.',
+    });
+  }
+
+  const simulacao = calcularEmprestimo(v, n);
+
+  res.json({
+    sucesso: true,
+    simulacao,
+    dados: simulacao,
+  });
+};
+
+app.post('/api/cliente/emprestimo/simular', tratarSimulacaoEmprestimo);
+app.get('/api/cliente/emprestimo/simular', tratarSimulacaoEmprestimo);
+
+// Contratação de Empréstimo em 1 Clique (Transação Atômica com BEGIN ... COMMIT)
+app.post('/api/cliente/emprestimo/contratar', async (req, res) => {
+  const { conta_id, valor, meses } = req.body || {};
+
+  const numContaId = parseInt(conta_id, 10);
+  const numValor = parseFloat(valor);
+  const numMeses = parseInt(meses, 10);
+
+  if (isNaN(numContaId) || numContaId <= 0) {
+    return res.status(400).json({
+      sucesso: false,
+      erro: 'Conta de destino válida é obrigatória para a contratação.',
+    });
+  }
+
+  if (isNaN(numValor) || numValor < 500 || numValor > 50000) {
+    return res.status(400).json({
+      sucesso: false,
+      erro: 'O valor do empréstimo deve estar entre R$ 500,00 e R$ 50.000,00.',
+    });
+  }
+
+  if (isNaN(numMeses) || numMeses < 6 || numMeses > 48) {
+    return res.status(400).json({
+      sucesso: false,
+      erro: 'O prazo do empréstimo deve estar entre 6 e 48 meses.',
+    });
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    // Bloqueia a conta para concorrência e consistência estrita
+    const contaRes = await client.query(
+      'SELECT id, numero, digito, saldo, status FROM contas WHERE id = $1 FOR UPDATE',
+      [numContaId]
+    );
+
+    if (contaRes.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({
+        sucesso: false,
+        erro: 'Conta não encontrada.',
+      });
+    }
+
+    const conta = contaRes.rows[0];
+    if (conta.status !== 'ativa') {
+      await client.query('ROLLBACK');
+      return res.status(400).json({
+        sucesso: false,
+        erro: `A conta ${conta.numero}-${conta.digito} está com status "${conta.status}". Apenas contas ativas podem contratar crédito.`,
+      });
+    }
+
+    const simulacao = calcularEmprestimo(numValor, numMeses);
+    const novoSaldo = Math.round((parseFloat(conta.saldo) + numValor) * 100) / 100;
+
+    // Atualiza saldo na conta
+    await client.query('UPDATE contas SET saldo = $1 WHERE id = $2', [novoSaldo, conta.id]);
+
+    // Descrição e código de autenticação / protocolo
+    const desc = `Empréstimo Pessoal Contratado - ${numMeses} parcelas de ${formatarBRL(simulacao.valor_parcela)}`;
+    const refExterna = 'EMP-' + Date.now().toString(36).toUpperCase() + '-' + Math.random().toString(36).substring(2, 7).toUpperCase();
+
+    // Insere transação de crédito como tipo 'deposito'
+    const txRes = await client.query(
+      `INSERT INTO transacoes (
+        tipo, status, valor, descricao, conta_origem_id, conta_destino_id, referencia_externa, realizada_em
+      ) VALUES (
+        'deposito', 'concluida', $1, $2, NULL, $3, $4, NOW()
+      ) RETURNING id, realizada_em`,
+      [numValor, desc, conta.id, refExterna]
+    );
+
+    await client.query('COMMIT');
+
+    const transacaoId = txRes.rows[0].id;
+    const dataContratacao = txRes.rows[0].realizada_em;
+
+    res.json({
+      sucesso: true,
+      mensagem: `Empréstimo de ${formatarBRL(numValor)} contratado com sucesso!`,
+      transacao_id: transacaoId,
+      conta_id: conta.id,
+      conta_numero: `${conta.numero}-${conta.digito}`,
+      valor_creditado: numValor,
+      novo_saldo: novoSaldo,
+      referencia_externa: refExterna,
+      data_contratacao: dataContratacao,
+      detalhes: {
+        valor: numValor,
+        parcelas: numMeses,
+        valor_parcela: simulacao.valor_parcela,
+        total_a_pagar: simulacao.total_a_pagar,
+      },
+      contrato: {
+        valor_solicitado: numValor,
+        meses: numMeses,
+        taxa_mensal: 0.0189,
+        taxa_mensal_percentual: '1,89% a.m.',
+        taxa_anual_cet: 25.19,
+        cet_anual_percentual: '25,19% a.a.',
+        valor_parcela: simulacao.valor_parcela,
+        total_a_pagar: simulacao.total_a_pagar,
+        total_juros: simulacao.total_juros,
+      },
+    });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    res.status(500).json({
+      sucesso: false,
+      erro: 'Falha ao processar a contratação do empréstimo.',
+      detalhe: err.message,
+    });
   } finally {
     client.release();
   }
